@@ -335,7 +335,7 @@ class AnimateController:
 
         print(json_str)
 
-        if not args.live:
+        if args.live:
             if self.unet is None:
                 raise gr.Error(f"Please select a pretrained model path.")
             if motion_module_dropdown == "": 
@@ -461,7 +461,7 @@ def base_model_selection_ui(live=False):
         checkpoint_refresh_button.click(fn=update_checkpoints_list, inputs=[], outputs=[checkpoint_dropdown])
 
         # Load default models
-        if not live:
+        if live:
             controller.update_stable_diffusion(stable_diffusion_dropdown.value)
             controller.update_motion_module(motion_module_dropdown.value)
             controller.update_base_model(checkpoint_dropdown.value)
