@@ -520,27 +520,27 @@ def generate_tab_ui(live=False):
             )
 
             with gr.Tab(label="Prompts"):
-                with gr.Column():
-                    init_image_upload = gr.Image(label="Init image", interactive=True, type='filepath')
 
-                    with gr.Row():
-                        init_image_dropdown = gr.Dropdown(
-                        label="Select init image",
-                        info="Does not work with Euler sampling. Will default to DDIM if Euler was selected. PNDMScheduler is slower but could be better than DDIM. I'm not sure. Let me know if you find out.",
-                        choices=["none"] + controller.init_image_list,
-                        value="none",
-                        interactive=True,
-                    )
+                with gr.Row():
+                    with gr.Column():
+                        prompt_textbox = gr.Textbox(label="Prompt", lines=2, value="1girl, yoimiya (genshin impact), origen, line, comet, wink, Masterpiece ，BestQuality ，UltraDetailed")
+                        negative_prompt_textbox = gr.Textbox(label="Negative prompt", lines=2, value="NSFW, lr, nsfw,(sketch, duplicate, ugly, huge eyes, text, logo, monochrome, worst face, (bad and mutated hands:1.3), (worst quality:2.0), (low quality:2.0), (blurry:2.0), horror, geometry, bad_prompt_v2, (bad hands), (missing fingers), multiple limbs, bad anatomy, (interlocked fingers:1.2), Ugly Fingers, (extra digit and hands and fingers and legs and arms:1.4), crown braid, ((2girl)), (deformed fingers:1.2), (long fingers:1.2),succubus wings,horn,succubus horn,succubus hairstyle, (bad-artist-anime), bad-artist, bad hand, grayscale, skin spots, acnes, skin blemishes")
+                    
 
-                        init_image_refresh_button = gr.Button(value="\U0001F503", elem_classes="toolbutton")
-                        def update_init_image_list():
-                            controller.refresh_init_images()
-                            return gr.Dropdown.update(choices=["none"] + controller.init_image_list)
-                        init_image_refresh_button.click(fn=update_init_image_list, inputs=[], outputs=[init_image_dropdown])
+                    with gr.Column():
 
-                prompt_textbox = gr.Textbox(label="Prompt", lines=2, value="1girl, yoimiya (genshin impact), origen, line, comet, wink, Masterpiece ，BestQuality ，UltraDetailed")
-                negative_prompt_textbox = gr.Textbox(label="Negative prompt", lines=2, value="NSFW, lr, nsfw,(sketch, duplicate, ugly, huge eyes, text, logo, monochrome, worst face, (bad and mutated hands:1.3), (worst quality:2.0), (low quality:2.0), (blurry:2.0), horror, geometry, bad_prompt_v2, (bad hands), (missing fingers), multiple limbs, bad anatomy, (interlocked fingers:1.2), Ugly Fingers, (extra digit and hands and fingers and legs and arms:1.4), crown braid, ((2girl)), (deformed fingers:1.2), (long fingers:1.2),succubus wings,horn,succubus horn,succubus hairstyle, (bad-artist-anime), bad-artist, bad hand, grayscale, skin spots, acnes, skin blemishes")
-                
+                        with gr.Row():
+                            init_image_dropdown = gr.Dropdown(
+                            label="Select init image",
+                            info="Does not work with Euler sampling. Will default to DDIM if Euler was selected. PNDMScheduler is slower but could be better than DDIM. I'm not sure. Let me know if you find out.",
+                            choices=["none"] + controller.init_image_list,
+                            value="none",
+                            interactive=True,
+                        )
+                            init_image_refresh_button = gr.Button(value="\U0001F503", elem_classes="toolbutton")
+
+                        init_image_upload = gr.Image(label="Init image", interactive=True, type='filepath')
+
             with gr.Tab(label="LoRAs"):
                 lora_dropdown_list, lora_alpha_slider_list = lora_selection_ui()
             
@@ -598,6 +598,11 @@ def generate_tab_ui(live=False):
                 with gr.Tab(label="MP4"):
                     result_video = gr.Video(label="Generated Video", interactive=False)
 
+            def update_init_image_list():
+                controller.refresh_init_images()
+                return gr.Dropdown.update(choices=["none"] + controller.init_image_list)
+            init_image_refresh_button.click(fn=update_init_image_list, inputs=[], outputs=[init_image_dropdown])
+
             def update_init_image_dropdown(init_image_dropdown, sampler_dropdown):
                 sampler_choices = list(scheduler_dict.keys())
                 if init_image_dropdown != "none":
@@ -607,12 +612,15 @@ def generate_tab_ui(live=False):
                     
                 return gr.Dropdown.update(choices=sampler_choices, value=sampler_value)
             
-            def update_init_image(init_image_upload):
-                print(init_image_upload)
+            def update_init_image(init_image_upload, sampler_dropdown):
                 if init_image_upload != None:
-                    return gr.Dropdown.update(value="none")                    
+                    sampler_choices = list(scheduler_dict.keys())
+                    sampler_choices.remove("Euler")
+                    return [gr.Dropdown.update(value="none"), gr.Dropdown.update(choices=sampler_choices, value=sampler_value)]
+                sampler_value = "DDIM" if sampler_dropdown == "Euler" else sampler_dropdown
+                return [None, gr.Dropdown.update(choices=sampler_choices, value=sampler_value)]
             
-            init_image_upload.change(fn=update_init_image, inputs=[init_image_upload], outputs=[init_image_dropdown])
+            init_image_upload.change(fn=update_init_image, inputs=[init_image_upload, sampler_dropdown], outputs=[init_image_dropdown, sampler_dropdown])
 
             init_image_dropdown.change(fn=update_init_image_dropdown, inputs=[init_image_dropdown, sampler_dropdown], outputs=[sampler_dropdown])
 
