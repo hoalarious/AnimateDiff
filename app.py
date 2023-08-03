@@ -27,6 +27,12 @@ import requests
 import tqdm
 import re
 import shutil
+import concurrent.futures
+
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--live", default=True, type=bool, help="live mode")
+args = parser.parse_args()
 
 sample_idx     = 0
 max_LoRAs      = 5
@@ -44,6 +50,8 @@ css = """
     height: 2.5em;
 }
 """
+
+
 
 def download_url(url, headers=None, filename=None, destination_path=None):
     if headers is None:
@@ -83,6 +91,17 @@ def download_url(url, headers=None, filename=None, destination_path=None):
     print(f"Download completed. File saved to {filepath}")
 
     return filepath
+
+def download_urls(urls, destination_path, max_workers=5):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(download_url, url, None, None, destination_path): url for url in urls}
+
+        for future in concurrent.futures.as_completed(futures):
+            url = futures[future]
+            try:
+                filepath = future.result()
+            except Exception as exc:
+                print('%r generated an exception: %s' % (url, exc))
 
 def download_checkpoint(url, progress=gr.Progress(track_tqdm=True)):
     return download_url(url=url, destination_path=controller.checkpoints_dir)
@@ -271,25 +290,8 @@ class AnimateController:
         lora_alpha_slider_4,
 
     ):    
-        if self.unet is None:
-            raise gr.Error(f"Please select a pretrained model path.")
-        if motion_module_dropdown == "": 
-            raise gr.Error(f"Please select a motion module.")
-        if checkpoint_dropdown == "":
-            raise gr.Error(f"Please select a base DreamBooth model.")
-
-        if is_xformers_available(): self.unet.enable_xformers_memory_efficient_attention()
-
-        pipeline = AnimationPipeline(
-            vae=self.vae, text_encoder=self.text_encoder, tokenizer=self.tokenizer, unet=self.unet,
-            scheduler=scheduler_dict[sampler_dropdown](**OmegaConf.to_container(self.inference_config.noise_scheduler_kwargs))
-        ).to("cuda")
-        
-        # if self.lora_model_state_dict != {}:
-        #     pipeline = convert_lora(pipeline, self.lora_model_state_dict, alpha=lora_alpha_slider)
-
-
-        # Load loras
+        seed = seed_textbox
+            
         lora_list = self.process_lora_inputs(
                                         lora_model_dropdown_0, # Need to find a better solution around this as Gradio doesn't allow dynamic number of inputs and refreshes values for direct inputs. Maybe use tuple as input?
                                         lora_model_dropdown_1,
@@ -302,47 +304,10 @@ class AnimateController:
                                         lora_alpha_slider_3,
                                         lora_alpha_slider_4
         )
-        pipeline = self.load_lora(pipeline, lora_list)
-
-        pipeline.to("cuda")
-
-        if seed_textbox != "-1" and seed_textbox != "": torch.manual_seed(int(seed_textbox))
-        else: torch.manual_seed(random.randint(1, 1e14))
-        seed = torch.initial_seed()
-        
-        # Handle none init image
-        if init_image == "none": init_image = None
-
-        if not enable_longer_videos:
-            context_length = 1000
-
-        sample = pipeline(
-            prompt              = prompt_textbox,
-            init_image          = init_image,
-            negative_prompt     = negative_prompt_textbox,
-            num_inference_steps = sample_step_slider,
-            guidance_scale      = cfg_scale_slider,
-            width               = width_slider,
-            height              = height_slider,
-            video_length        = length_slider,
-            temporal_context    = context_length,
-            strides             = context_stride + 1,
-            overlap             = context_overlap,
-            fp16                = fp16,
-        ).videos
 
         # Create project folder
         project_dir = os.path.join(self.savedir, f"run-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}")
 
-        # Save as gif
-        # if gif:
-        #     save_sample_path = os.path.join(project_dir, f"output.gif")
-        #     save_videos_grid(sample, save_sample_path, save_frames=True)
-
-        # Save as Mp4
-        save_sample_path = os.path.join(project_dir, f"output.mp4")
-        save_videos_grid(sample, save_sample_path, save_frames=True, save_additional_gif=True)
-    
         sample_config = {
             "stable_diffusion": stable_diffusion_dropdown,
             "motion_model": motion_module_dropdown,
@@ -364,20 +329,88 @@ class AnimateController:
             "lora_list": lora_list
         }
         json_str = json.dumps(sample_config, indent=4)
-        with open(os.path.join(project_dir, f"configs.json"), "a") as f:
-            f.write(json_str)
-            f.write("\n\n")
-            
-        if init_image is not None:
-            shutil.copy(init_image, f"{project_dir}/init_image.jpg")
 
-        return save_sample_path, save_sample_path.replace(".mp4", ".gif")
+        print(json_str)
+
+        if not args.live:
+            if self.unet is None:
+                raise gr.Error(f"Please select a pretrained model path.")
+            if motion_module_dropdown == "": 
+                raise gr.Error(f"Please select a motion module.")
+            if checkpoint_dropdown == "":
+                raise gr.Error(f"Please select a base DreamBooth model.")
+
+            if is_xformers_available(): self.unet.enable_xformers_memory_efficient_attention()
+
+            pipeline = AnimationPipeline(
+                vae=self.vae, text_encoder=self.text_encoder, tokenizer=self.tokenizer, unet=self.unet,
+                scheduler=scheduler_dict[sampler_dropdown](**OmegaConf.to_container(self.inference_config.noise_scheduler_kwargs))
+            ).to("cuda")
+            
+            # if self.lora_model_state_dict != {}:
+            #     pipeline = convert_lora(pipeline, self.lora_model_state_dict, alpha=lora_alpha_slider)
+
+
+            # Load loras
+
+            pipeline = self.load_lora(pipeline, lora_list)
+
+            pipeline.to("cuda")
+
+            if seed_textbox != "-1" and seed_textbox != "": torch.manual_seed(int(seed_textbox))
+            else: torch.manual_seed(random.randint(1, 1e14))
+            seed = torch.initial_seed()
+            
+            # Handle none init image
+            if init_image == "none": init_image = None
+
+            if not enable_longer_videos:
+                context_length = 1000
+
+            sample = pipeline(
+                prompt              = prompt_textbox,
+                init_image          = init_image,
+                negative_prompt     = negative_prompt_textbox,
+                num_inference_steps = sample_step_slider,
+                guidance_scale      = cfg_scale_slider,
+                width               = width_slider,
+                height              = height_slider,
+                video_length        = length_slider,
+                temporal_context    = context_length,
+                strides             = context_stride + 1,
+                overlap             = context_overlap,
+                fp16                = fp16,
+            ).videos
+
+
+
+            # Save as gif
+            # if gif:
+            #     save_sample_path = os.path.join(project_dir, f"output.gif")
+            #     save_videos_grid(sample, save_sample_path, save_frames=True)
+
+            # Save as Mp4
+            save_sample_path = os.path.join(project_dir, f"output.mp4")
+            save_videos_grid(sample, save_sample_path, save_frames=True, save_additional_gif=True)
+
+            if init_image is not None:
+                shutil.copy(init_image, f"{project_dir}/init_image.jpg")
+    
+
+            with open(os.path.join(project_dir, f"configs.json"), "a") as f:
+                f.write(json_str)
+                f.write("\n\n")
+            
+
+
+            return save_sample_path, save_sample_path.replace(".mp4", ".gif")
+        return None, None
         
 
 controller = AnimateController()
 
 
-def base_model_selection_ui():
+def base_model_selection_ui(live=False):
     with gr.Row():
         stable_diffusion_dropdown = gr.Dropdown(
             label="Pretrained Model Path",
@@ -425,9 +458,10 @@ def base_model_selection_ui():
         checkpoint_refresh_button.click(fn=update_checkpoints_list, inputs=[], outputs=[checkpoint_dropdown])
 
         # Load default models
-        controller.update_stable_diffusion(stable_diffusion_dropdown.value)
-        controller.update_motion_module(motion_module_dropdown.value)
-        controller.update_base_model(checkpoint_dropdown.value)
+        if not live:
+            controller.update_stable_diffusion(stable_diffusion_dropdown.value)
+            controller.update_motion_module(motion_module_dropdown.value)
+            controller.update_base_model(checkpoint_dropdown.value)
 
         return stable_diffusion_dropdown, motion_module_dropdown, checkpoint_dropdown
 
@@ -469,10 +503,10 @@ def lora_selection_ui():
     return lora_dropdown_list, lora_alpha_slider_list
 
 
-def generate_tab_ui():
+def generate_tab_ui(live=False):
     
         with gr.Accordion("1. Model checkpoints (select pretrained model path first", open=False):
-            stable_diffusion_dropdown, motion_module_dropdown, checkpoint_dropdown = base_model_selection_ui()
+            stable_diffusion_dropdown, motion_module_dropdown, checkpoint_dropdown = base_model_selection_ui(live=live)
             
 
         with gr.Column(variant="panel"):
@@ -483,20 +517,23 @@ def generate_tab_ui():
             )
 
             with gr.Tab(label="Prompts"):
-                with gr.Row():
-                    init_image_dropdown = gr.Dropdown(
-                    label="Select init image",
-                    info="Does not work with Euler sampling. Will default to DDIM if Euler was selected. PNDMScheduler is slower but could be better than DDIM. I'm not sure. Let me know if you find out.",
-                    choices=["none"] + controller.init_image_list,
-                    value="none",
-                    interactive=True,
-                )
+                with gr.Column():
+                    init_image_upload = gr.Image(label="Init image", interactive=True, type='filepath')
 
-                    init_image_refresh_button = gr.Button(value="\U0001F503", elem_classes="toolbutton")
-                    def update_init_image_list():
-                        controller.refresh_init_images()
-                        return gr.Dropdown.update(choices=["none"] + controller.init_image_list)
-                    init_image_refresh_button.click(fn=update_init_image_list, inputs=[], outputs=[init_image_dropdown])
+                    with gr.Row():
+                        init_image_dropdown = gr.Dropdown(
+                        label="Select init image",
+                        info="Does not work with Euler sampling. Will default to DDIM if Euler was selected. PNDMScheduler is slower but could be better than DDIM. I'm not sure. Let me know if you find out.",
+                        choices=["none"] + controller.init_image_list,
+                        value="none",
+                        interactive=True,
+                    )
+
+                        init_image_refresh_button = gr.Button(value="\U0001F503", elem_classes="toolbutton")
+                        def update_init_image_list():
+                            controller.refresh_init_images()
+                            return gr.Dropdown.update(choices=["none"] + controller.init_image_list)
+                        init_image_refresh_button.click(fn=update_init_image_list, inputs=[], outputs=[init_image_dropdown])
 
                 prompt_textbox = gr.Textbox(label="Prompt", lines=2, value="1girl, yoimiya (genshin impact), origen, line, comet, wink, Masterpiece ，BestQuality ，UltraDetailed")
                 negative_prompt_textbox = gr.Textbox(label="Negative prompt", lines=2, value="NSFW, lr, nsfw,(sketch, duplicate, ugly, huge eyes, text, logo, monochrome, worst face, (bad and mutated hands:1.3), (worst quality:2.0), (low quality:2.0), (blurry:2.0), horror, geometry, bad_prompt_v2, (bad hands), (missing fingers), multiple limbs, bad anatomy, (interlocked fingers:1.2), Ugly Fingers, (extra digit and hands and fingers and legs and arms:1.4), crown braid, ((2girl)), (deformed fingers:1.2), (long fingers:1.2),succubus wings,horn,succubus horn,succubus hairstyle, (bad-artist-anime), bad-artist, bad hand, grayscale, skin spots, acnes, skin blemishes")
@@ -566,8 +603,20 @@ def generate_tab_ui():
                 sampler_value = "DDIM" if sampler_dropdown == "Euler" else sampler_dropdown
                     
                 return gr.Dropdown.update(choices=sampler_choices, value=sampler_value)
+            
+            def update_init_image(init_image_upload):
+                print(init_image_upload)
+                if init_image_upload != None:
+                    return gr.Dropdown.update(value="none")                    
+            
+            init_image_upload.change(fn=update_init_image, inputs=[init_image_upload], outputs=[init_image_dropdown])
 
             init_image_dropdown.change(fn=update_init_image_dropdown, inputs=[init_image_dropdown, sampler_dropdown], outputs=[sampler_dropdown])
+
+            if init_image_upload == None:
+                init_image = init_image_dropdown
+            else:
+                init_image = init_image_upload
 
             generate_button.click(
                 fn=controller.animate,
@@ -575,7 +624,7 @@ def generate_tab_ui():
                     stable_diffusion_dropdown,
                     motion_module_dropdown,
                     checkpoint_dropdown,
-                    init_image_dropdown,
+                    init_image,
                     prompt_textbox, 
                     negative_prompt_textbox, 
                     sampler_dropdown, 
@@ -624,7 +673,10 @@ def credits_tab_ui():
         """
     )
 
-def ui():
+# Get run params
+
+
+def ui(live=args.live):
     with gr.Blocks(css=css) as demo:
         gr.Markdown(
             """
@@ -633,7 +685,7 @@ def ui():
         )
 
         with gr.Tab(label="Generate"):
-            generate_tab_ui()
+            generate_tab_ui(live=live)
 
         with gr.Tab(label="Download"):
             download_tab_ui()

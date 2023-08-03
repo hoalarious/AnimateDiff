@@ -17,11 +17,14 @@ This a fork of the official repo. Made specifically to run in Colab with gradio 
 
 ## Todo
 - Allow uploading of init images
+- ClIP interrogator
+- PNGinfo
+- Load/Save from configs
+- Configs tab + gdrive
+- Batch operations
 - Init image strength and decay options. Allowing you to control how strong the generation should follow to the initial image and how quickly it diverges from it.
 - Implement rife-ncnn-vulkan (Idea from https://github.com/neggles/animatediff-cli)
 - Explore implentation of control net with mov2mov
-- Load/Save from configs
-- Configs tab
 
 ## Testing and replication
 

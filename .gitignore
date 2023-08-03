@@ -8,3 +8,8 @@ configs/custom_prompts
 samples
 models/StableDiffusion
 .vscode
+models/checkpoints/
+models/checkpoints
+models/loras
+models/loras/
+local_helper.txt

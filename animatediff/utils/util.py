@@ -12,6 +12,7 @@ import PIL.Image
 import PIL.ImageOps
 from packaging import version
 from PIL import Image
+from urllib.request import Request, urlopen
 
 def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, fps=8, save_frames=False, save_additional_gif=False):
     videos = rearrange(videos, "b c t h w -> t b c h w")
@@ -40,6 +41,30 @@ def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, f
         gif_path = path.replace(".mp4", ".gif")
         imageio.mimsave(gif_path, outputs, fps=fps)
 
+# Get PNGinfo
+def get_png_info(url, input_image):
+    if url == '' and input_image is None:
+        return None, "", ""
+
+    image = None
+    if url != '':
+        req = Request(
+            url=url, 
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        res = urlopen(req)
+        image = Image.open(res)
+        image.load()
+
+
+    if input_image is not None:
+        image = input_image
+
+    parameters = "Parameters have been erased from this image or unsupported format"
+    if 'parameters' in image.info:
+        parameters = image.info['parameters']
+
+    return image, parameters, image.info
 
 # DDIM Inversion
 @torch.no_grad()
