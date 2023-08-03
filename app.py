@@ -31,7 +31,10 @@ import concurrent.futures
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument("--live", default=True, type=bool, help="live mode")
+
+# Add boolean argument --live
+
+parser.add_argument("--live", default=False, type=bool, help="live mode", action=argparse.BooleanOptionalAction)
 args = parser.parse_args()
 
 sample_idx     = 0
